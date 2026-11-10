@@ -47,12 +47,25 @@
     KEY_BY_NORM[normKey(d[1])] = d[0];
   });
 
+  // Exact label first; otherwise allow small wording additions, e.g.
+  // "Expected Work-Based Learning Hours" -> Work-Based Learning Hours.
+  var NORM_BY_LENGTH = Object.keys(KEY_BY_NORM).sort(function (a, b) { return b.length - a.length; });
+  function fieldKeyFor(label) {
+    var n = normKey(label);
+    if (KEY_BY_NORM[n]) return KEY_BY_NORM[n];
+    for (var i = 0; i < NORM_BY_LENGTH.length; i++) {
+      var d = NORM_BY_LENGTH[i];
+      if (d.length >= 10 && n.indexOf(d) !== -1) return KEY_BY_NORM[d];
+    }
+    return null;
+  }
+
   var FLAG_FILTERS = [
-    { id: 'ap', label: 'AP', test: function (c) { return isYes(c.f.ap); } },
+    { id: 'ap', label: 'AP', test: function (c) { return isAP(c); } },
     { id: 'dual', label: 'Dual Credit', test: function (c) { return isYes(c.f.dual); } },
     { id: 'ncaa', label: 'NCAA Approved', test: function (c) { return isYes(c.f.ncaa); } },
     { id: 'credential', label: 'Industry Credential', test: function (c) { return hasValue(c.f.credential); } },
-    { id: 'wbl', label: 'Work-Based Learning Hours', test: function (c) { return hasValue(c.f.wbl); } },
+    { id: 'wbl', label: 'Work-Based Learning Hours', test: function (c) { return hasWBL(c); } },
     { id: 'noprereq', label: 'No Prerequisite', test: function (c) { return !hasValue(c.f.prereq); } },
     { id: 'application', label: 'Application / Audition Required', test: function (c) { return isYes(c.f.application); } }
   ];
@@ -103,6 +116,28 @@
   }
   function isYes(v) {
     return !!v && /^\s*yes\b/i.test(v);
+  }
+  // AP field is written either "Yes ..." or "AP course: Yes. AP exam required: ..."
+  function isAP(c) {
+    var v = c.f.ap || '';
+    return isYes(v) || /\bAP course\s*:?\s*yes\b/i.test(v);
+  }
+  // Work-Based Learning hours: counts only when filled in with something other than N/A or 0.
+  function hasWBL(c) {
+    var v = (c.f.wbl || '').trim();
+    return hasValue(v) && !/^0+(\.0+)?$/.test(v);
+  }
+  // "7253 (7253/1CC, 7253/2CC)" -> "7253"; "3542 (PE I), 3544 (PE II)" -> "3542, 3544"
+  function shortCode(code) {
+    if (!hasValue(code)) return '';
+    var s = String(code).replace(/\s*\([^)]*\)/g, '').replace(/\s*,\s*/g, ', ').trim();
+    return s || code;
+  }
+  // "2 semesters / 2 credits" -> "2 Semesters | 2 Credits"
+  function formatLength(text) {
+    return String(text).split(/\s+\/\s+/).map(function (part) {
+      return part.replace(/\b(semesters?|credits?)\b/gi, function (w) { return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(); });
+    }).join(' | ');
   }
 
   // Grade levels: "9–12", "10-12", "11, 12", "12" -> [9..12]. Returns null if unreadable.
@@ -178,7 +213,7 @@
         var label = cleanKey(cells[0]);
         if (!label) return;
         var value = cleanCell(cells.slice(1).join(' | '));
-        var key = KEY_BY_NORM[normKey(label)];
+        var key = fieldKeyFor(label);
         if (key) {
           fields[key] = value;
           if (key === 'title' && value) isCourse = true;
@@ -194,6 +229,15 @@
 
     // Department-wide notes (e.g. the prerequisite-level footnote) that sit
     // above the first table. Headings and the "Department: ... School Year:" line are skipped.
+    // Internal review lists ("Things to check with the department: ...") are skipped
+    // up to the next heading so they never appear on the public site.
+    var skipping = false;
+    preamble = preamble.filter(function (l) {
+      var t = l.replace(/[*_\\]/g, '').trim();
+      if (/^#/.test(t)) { skipping = false; return true; }
+      if (/^things to (check|verify|confirm)\b/i.test(t)) { skipping = true; return false; }
+      return !skipping;
+    });
     var notes = preamble
       .map(function (l) { return l.trim(); })
       .filter(function (l) { return l && !/^#/.test(l); })
@@ -248,6 +292,9 @@
   function finishLoad() {
     var used = {};
     state.departments.forEach(function (dept) {
+      dept.courses.sort(function (a, b) {
+        return a.f.title.localeCompare(b.f.title, undefined, { numeric: true, sensitivity: 'base' });
+      });
       dept.courses.forEach(function (c) {
         c.dept = dept;
         var base = slugify(c.f.title) || 'course';
@@ -262,18 +309,31 @@
         state.byId[id] = c;
       });
     });
-    state.titleIndex = state.courses
-      .map(function (c) { return { title: c.f.title, id: c.id }; })
-      .sort(function (a, b) { return b.title.length - a.title.length; });
-
-    // "Listed as a prerequisite for" — built only from exact course titles found in prerequisite text.
-    state.courses.forEach(function (c) { c.requiredBy = []; });
+    // Names the guides use to refer to a course: its exact title, the title without a
+    // trailing parenthetical ("Management Fundamentals (McCormick’s Cafe)" -> "Management
+    // Fundamentals"), and "&"/"and" spellings. A short name is only used if it points to one course.
+    var exact = {};
+    state.courses.forEach(function (c) { exact[c.f.title.toLowerCase()] = true; });
+    var aliasCount = {}, entries = [];
     state.courses.forEach(function (c) {
-      findCourseMentions(c.f.prereq || '').forEach(function (id) {
-        var target = state.byId[id];
-        if (target && target !== c && target.requiredBy.indexOf(c) === -1) target.requiredBy.push(c);
+      var names = [c.f.title];
+      var stripped = c.f.title.replace(/\s*\([^)]*\)\s*$/, '');
+      if (stripped !== c.f.title && !exact[stripped.toLowerCase()]) names.push(stripped);
+      names.slice().forEach(function (n) {
+        if (/ and /i.test(n)) names.push(n.replace(/ and /gi, ' & '));
+        if (/ & /.test(n)) names.push(n.replace(/ & /g, ' and '));
+      });
+      names.forEach(function (n, i) {
+        var k = n.toLowerCase();
+        if (i > 0) aliasCount[k] = (aliasCount[k] || 0) + 1;
+        entries.push({ title: n, id: c.id, alias: i > 0 });
       });
     });
+    state.titleIndex = entries
+      .filter(function (e) { return !e.alias || (aliasCount[e.title.toLowerCase()] === 1 && !exact[e.title.toLowerCase()]); })
+      .sort(function (a, b) { return b.title.length - a.title.length; });
+
+    buildPathways();
 
     showLoadWarnings();
     buildFilterBar();
@@ -281,6 +341,144 @@
     renderRail();
     renderCatalog();
     window.addEventListener('hashchange', function () { readHash(true); });
+  }
+
+  // ---------------------------------------------------------------
+  // Pathways
+  // The guides write "Pathway / Sequence" as
+  //   "<pathway name(s)> — <sequence>"   e.g.
+  //   "Software Development — follows Principles of Computing"
+  // Pathway membership and order come only from that text:
+  //   * "first course" -> step 1
+  //   * "follows <course title(s)>" -> one step after the latest of those courses
+  //   * "also part of / also an option in the <name> pathway" -> extra membership
+  // Courses whose position can't be read from the guide are listed separately, unnumbered.
+  // ---------------------------------------------------------------
+  function splitPathway(v) {
+    if (!hasValue(v)) return null;
+    var parts = String(v).split(/\s+—\s+/);
+    var name = parts.shift().trim();
+    return { name: name, sequence: parts.join(' — ').trim() };
+  }
+  function normName(s) {
+    return String(s).toLowerCase().replace(/&/g, ' and ').replace(/\bpathways?\b/g, ' ')
+      .replace(/[^a-z0-9()]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function containsName(hay, needle) {
+    return (' ' + hay + ' ').indexOf(' ' + needle + ' ') !== -1;
+  }
+
+  function buildPathways() {
+    var known = {}; // normalized name -> display name
+    state.courses.forEach(function (c) {
+      c.pw = splitPathway(c.f.pathway);
+      c.pathways = [];
+      if (!c.pw) return;
+      c.pw.name.split(/\s*;\s*|\s+and\/or\s+/i).forEach(function (piece) {
+        var n = normName(piece);
+        if (n && !known[n]) known[n] = piece.trim();
+      });
+    });
+    // Drop entries that are really two pathways joined by "and"
+    // ("Construction Trades – Carpentry and Civil Construction").
+    var names = Object.keys(known);
+    names.forEach(function (n) {
+      var inside = names.filter(function (o) { return o !== n && containsName(n, o); });
+      if (inside.length >= 2) delete known[n];
+    });
+    names = Object.keys(known);
+
+    var pathways = {};
+    state.courses.forEach(function (c) {
+      if (!c.pw) return;
+      var found = [];
+      var main = normName(c.pw.name);
+      names.forEach(function (n) { if (containsName(main, n)) found.push(n); });
+      c.pwFollows = {};
+      var alsoRe = /also (?:part of|an option in|included in|in) (?:the )?(.+?) pathway([^;]*)/gi, m;
+      while ((m = alsoRe.exec(c.pw.sequence)) !== null) {
+        var extra = normName(m[1]);
+        // "also part of the Business Administration pathway (follows Management Fundamentals ...)"
+        var f = m[2].match(/\bfollow(?:s|ing)?\s+(.+)/i);
+        names.forEach(function (n) {
+          if (!containsName(extra, n)) return;
+          if (found.indexOf(n) === -1) found.push(n);
+          if (f) c.pwFollows[n] = f[1].replace(/[()]/g, ' ');
+        });
+      }
+      found.forEach(function (n) {
+        if (!pathways[n]) pathways[n] = { key: n, name: known[n], members: [] };
+        pathways[n].members.push(c);
+        c.pathways.push(pathways[n]);
+      });
+    });
+
+    Object.keys(pathways).forEach(function (k) {
+      var pw = pathways[k];
+      pw.members.forEach(function (c) { stepOf(c, pw, {}); });
+    });
+    state.pathways = pathways;
+  }
+
+  function stepOf(c, pw, seen) {
+    c.steps = c.steps || {};
+    if (pw.key in c.steps) return c.steps[pw.key];
+    if (seen[c.id]) return null;
+    seen[c.id] = true;
+    var seq = c.pw ? c.pw.sequence : '';
+    var step = null;
+    if (/\bfirst course\b/i.test(seq) && !(c.pwFollows && c.pwFollows[pw.key])) {
+      step = 1;
+    } else {
+      var m = seq.match(/\bfollows\s+([^;(]+)/i);
+      var followText = (c.pwFollows && c.pwFollows[pw.key]) || (m ? m[1] : '');
+      var refs = followText ? findCourseMentions(followText) : [];
+      var best = null;
+      refs.forEach(function (id) {
+        var r = state.byId[id];
+        if (!r || r === c || pw.members.indexOf(r) === -1) return;
+        var s = stepOf(r, pw, seen);
+        if (s !== null && (best === null || s > best)) best = s;
+      });
+      if (best !== null) step = best + 1;
+    }
+    c.steps[pw.key] = step;
+    return step;
+  }
+
+  function pathwayBlock(c, pw) {
+    var byStep = {};
+    var unplaced = [];
+    pw.members.forEach(function (m) {
+      var s = m.steps[pw.key];
+      if (s === null || s === undefined) unplaced.push(m);
+      else (byStep[s] = byStep[s] || []).push(m);
+    });
+    var steps = Object.keys(byStep).map(Number).sort(function (a, b) { return a - b; });
+    var sortT = function (a, b) { return a.f.title.localeCompare(b.f.title); };
+    var item = function (m) {
+      return m === c
+        ? '<strong class="pw-current" aria-current="true">' + escapeHtml(m.f.title) + '</strong>'
+        : '<a class="course-link" href="#course=' + encodeURIComponent(m.id) + '" data-goto="' + escapeHtml(m.id) + '">' + escapeHtml(m.f.title) + '</a>';
+    };
+    var shared = false;
+    var html = '';
+    if (steps.length) {
+      html += '<ol class="pathway-list">' + steps.map(function (s) {
+        var list = byStep[s].sort(sortT);
+        if (list.length > 1) shared = true;
+        return '<li value="' + s + '">' + list.map(item).join('<br>') + '</li>';
+      }).join('') + '</ol>';
+    }
+    if (unplaced.length) {
+      html += '<p class="pw-also"><strong>' + (steps.length ? 'Also in this pathway' : 'Courses in this pathway') + ':</strong><br>' +
+        unplaced.sort(sortT).map(item).join('<br>') + '</p>';
+    }
+    if (shared) {
+      html += '<p class="pw-note">Courses that share a number come at the same point in the pathway. Check each course’s prerequisites to see what is required.</p>';
+    }
+    var title = /pathway$/i.test(pw.name) ? pw.name : pw.name + ' Pathway';
+    return '<h3>' + escapeHtml(title) + '</h3><div class="dc-block">' + html + '</div>';
   }
 
   function showLoadWarnings() {
@@ -408,11 +606,11 @@
   // ---------------------------------------------------------------
   function badgesFor(c) {
     var b = [];
-    if (isYes(c.f.ap)) b.push('<span class="badge ap">AP</span>');
+    if (isAP(c)) b.push('<span class="badge ap">AP</span>');
     if (isYes(c.f.dual)) b.push('<span class="badge dual">Dual Credit</span>');
     if (isYes(c.f.ncaa)) b.push('<span class="badge req">NCAA</span>');
     if (hasValue(c.f.credential)) b.push('<span class="badge seal">Credential</span>');
-    if (hasValue(c.f.wbl)) b.push('<span class="badge pathway">Work-Based Learning</span>');
+    if (hasWBL(c)) b.push('<span class="badge pathway">Work-Based Learning</span>');
     if (isYes(c.f.application)) b.push('<span class="badge icc">Application</span>');
     return b.join('');
   }
@@ -420,14 +618,10 @@
   function courseRow(c) {
     var meta = [];
     if (hasValue(c.f.grades)) meta.push('Grades ' + escapeHtml(c.f.grades));
-    if (hasValue(c.f.length)) meta.push(escapeHtml(c.f.length));
-    if (hasValue(c.f.code)) meta.push('<span class="course-code">' + escapeHtml(c.f.code) + '</span>');
-    var prereq = hasValue(c.f.prereq)
-      ? '<p class="course-prereq"><strong>Prerequisite:</strong> ' + escapeHtml(truncate(c.f.prereq, 140)) + '</p>' : '';
+    if (hasValue(c.f.length)) meta.push(escapeHtml(formatLength(c.f.length)));
     return '<button class="course-row" data-id="' + escapeHtml(c.id) + '">' +
       '<div><p class="course-title">' + escapeHtml(c.f.title) + '</p>' +
-      '<div class="course-meta">' + meta.map(function (m) { return '<span>' + m + '</span>'; }).join('') + '</div>' +
-      prereq + '</div>' +
+      '<div class="course-meta">' + meta.join(' | ') + '</div></div>' +
       '<div class="badges">' + badgesFor(c) + '</div></button>';
   }
   function truncate(s, n) {
@@ -529,7 +723,7 @@
     if (!opts.linkCourses) return escapeHtml(text);
     return tokenizeCourses(text).map(function (t) {
       if (t.id && t.id !== opts.selfId) {
-        return '<button class="course-link" data-goto="' + escapeHtml(t.id) + '">' + escapeHtml(t.text) + '</button>';
+        return '<a class="course-link" href="#course=' + encodeURIComponent(t.id) + '" data-goto="' + escapeHtml(t.id) + '">' + escapeHtml(t.text) + '</a>';
       }
       return escapeHtml(t.text);
     }).join('');
@@ -549,33 +743,38 @@
     return '<h3>' + escapeHtml(title) + '</h3><div class="dc-block">' + inner + '</div>';
   }
 
+  function pathwayRows(c, link) {
+    if (!c.pw) return '';
+    var out = '<p><strong>Pathway:</strong> ' + escapeHtml(c.pw.name) + '</p>';
+    if (hasValue(c.pw.sequence)) out += '<p><strong>Sequence:</strong> ' + renderRich(c.pw.sequence, link) + '</p>';
+    return out;
+  }
+
   function openCourse(id, fromHash) {
     var c = state.byId[id];
     if (!c) return;
     var link = { linkCourses: true, selfId: c.id };
     var html = '<h2 id="detailTitle">' + escapeHtml(c.f.title) + '</h2>';
-    if (hasValue(c.f.code)) html += '<div class="detail-code">' + escapeHtml(c.f.code) + '</div>';
-    html += '<p class="detail-dept">' + escapeHtml(c.dept.name) + (hasValue(c.f.year) ? ' · ' + escapeHtml(c.f.year) : '') + '</p>';
+    var code = shortCode(c.f.code);
+    html += '<div class="detail-code">' + escapeHtml(c.dept.name) + (code ? ' · ' + escapeHtml(code) : '') + '</div>';
     var badges = badgesFor(c);
     if (badges) html += '<div class="badges">' + badges + '</div>';
 
-    if (hasValue(c.f.description)) html += '<h3>Course Description</h3><p>' + renderRich(c.f.description) + '</p>';
+    if (hasValue(c.f.description)) html += '<h3>Description</h3><p>' + renderRich(c.f.description) + '</p>';
 
     html += block('At a Glance',
-      row('grades', c) + row('length', c) + row('maxTimes', c) + row('pathway', c, { hideEmpty: true, rich: link }));
+      row('grades', c) + row('length', c) + row('maxTimes', c) + pathwayRows(c, link));
 
-    var prereqInner = row('prereq', c, { rich: link }) + row('coreq', c, { hideEmpty: true, rich: link }) + row('application', c, { rich: {} });
+    var prereqInner = row('prereq', c, { rich: link }) + row('coreq', c, { hideEmpty: true, rich: link }) +
+      (isYes(c.f.application) ? row('application', c, { rich: {} }) : '');
     if (c.dept.notes.length && hasValue(c.f.prereq)) {
       prereqInner += c.dept.notes.map(function (n) { return '<p><em>' + escapeHtml(n) + '</em></p>'; }).join('');
     }
     html += block('Prerequisites & Requirements', prereqInner);
 
-    if (c.requiredBy.length) {
-      html += '<h3>Listed as a Prerequisite For</h3><div class="dc-block"><ul>' +
-        c.requiredBy.map(function (r) {
-          return '<li><button class="course-link" data-goto="' + escapeHtml(r.id) + '">' + escapeHtml(r.f.title) + '</button></li>';
-        }).join('') + '</ul></div>';
-    }
+    c.pathways.forEach(function (pw) {
+      if (pw.members.length > 1) html += pathwayBlock(c, pw);
+    });
 
     if (isYes(c.f.dual)) {
       html += block('Dual Credit',
@@ -584,8 +783,10 @@
 
     var more = '';
     if (!isYes(c.f.dual)) more += row('dual', c);
+    // Full course code only when it carries more than the short code shown at the top.
+    if (hasValue(c.f.code) && c.f.code.trim() !== shortCode(c.f.code)) more += row('code', c);
     more += row('ap', c) + row('ncaa', c) +
-      row('credential', c, { hideEmpty: true }) + row('wbl', c, { hideEmpty: true }) +
+      row('credential', c, { hideEmpty: true }) + (hasWBL(c) ? row('wbl', c) : '') +
       row('texts', c, { hideEmpty: true }) + row('notes', c, { hideEmpty: true, rich: link });
     c.extras.forEach(function (x) {
       if (hasValue(x.value)) more += '<p><strong>' + escapeHtml(x.label) + ':</strong> ' + renderRich(x.value) + '</p>';
@@ -599,7 +800,7 @@
     var content = document.getElementById('detailContent');
     content.innerHTML = html;
     content.querySelectorAll('[data-goto]').forEach(function (btn) {
-      btn.addEventListener('click', function () { openCourse(btn.getAttribute('data-goto')); });
+      btn.addEventListener('click', function (e) { e.preventDefault(); openCourse(btn.getAttribute('data-goto')); });
     });
     var panel = document.getElementById('detailPanel');
     panel.scrollTop = 0;

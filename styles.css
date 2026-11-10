@@ -261,6 +261,15 @@ button:focus-visible, a:focus-visible, select:focus-visible {
   font-family: var(--font);
   color: inherit;
 }
+/* Pathway list in the course tray */
+#detailContent .pathway-list { margin: 0; padding-left: 22px; }
+#detailContent .pathway-list li { margin: 0 0 8px; padding-left: 2px; }
+#detailContent .pathway-list li::marker { color: var(--blue); font-weight: 700; }
+#detailContent .pathway-list li:last-child { margin-bottom: 0; }
+.pw-current { color: var(--ink); }
+#detailContent .pw-also { margin: 12px 0 0; }
+#detailContent .pw-note { margin: 12px 0 0; font-size: 0.78rem; color: var(--ink-dim); }
+
 .course-row:hover .course-title, .course-row:focus-visible .course-title { color: var(--blue); }
 .course-title {
   font-family: var(--font);
@@ -347,9 +356,8 @@ button:focus-visible, a:focus-visible, select:focus-visible {
   font-family: var(--mono);
   font-size: 0.78rem;
   color: var(--ink-dim);
-  margin-bottom: 4px;
+  margin-bottom: 14px;
 }
-#detailContent .detail-dept { font-size: 0.85rem; color: var(--ink-dim); margin: 0 0 12px; }
 #detailContent .badges { justify-content: flex-start; max-width: none; margin-bottom: 4px; }
 #detailContent h3 {
   font-family: var(--font);
