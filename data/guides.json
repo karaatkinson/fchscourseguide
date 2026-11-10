@@ -1,0 +1,19 @@
+{
+  "schoolYear": "2027–2028",
+  "guides": [
+    { "department": "Business", "file": "business.md" },
+    { "department": "Engineering and Technology Education", "file": "engineering-technology.md" },
+    { "department": "English Language Arts", "file": "english.md" },
+    { "department": "Family and Consumer Sciences", "file": "family-consumer-sciences.md" },
+    { "department": "Mathematics", "file": "math.md" },
+    { "department": "Multidisciplinary", "file": "multidisciplinary.md" },
+    { "department": "Multilingual Learners (ML)", "file": "multilingual-learners.md" },
+    { "department": "Performing Arts", "file": "performing-arts.md" },
+    { "department": "Physical Education", "file": "physical-education.md" },
+    { "department": "Science", "file": "science.md" },
+    { "department": "Social Studies", "file": "social-studies.md" },
+    { "department": "Special Education", "file": "special-education.md" },
+    { "department": "Visual Arts", "file": "visual-arts.md" },
+    { "department": "World Languages", "file": "world-languages.md" }
+  ]
+}
