@@ -1,0 +1,2 @@
+Put the department guide .md files in this folder.
+See README.md for the file names.

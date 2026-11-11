@@ -472,3 +472,38 @@ button:focus-visible, a:focus-visible, select:focus-visible {
   .badges { justify-content: flex-start; max-width: none; }
   .detail-panel { padding: 24px 20px; }
 }
+
+/* ---- Pathway filter + pathway view ---- */
+.filter-select {
+  background: var(--white);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  max-width: 260px;
+}
+.filter-select:hover, .filter-select:focus { border-color: var(--blue); }
+.pw-intro { color: var(--ink-dim); font-size: 0.92rem; margin: 0 0 16px; }
+.pw-steps { list-style: none; margin: 0; padding: 0; }
+.pw-step { display: grid; grid-template-columns: 40px 1fr; gap: 14px; margin-bottom: 22px; }
+.pw-step-num {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: var(--blue); color: var(--white);
+  font-weight: 700; font-size: 1rem;
+  display: flex; align-items: center; justify-content: center;
+  margin-top: 4px;
+}
+.pw-step:not(:last-child) .pw-step-num { box-shadow: 0 0 0 4px var(--blue-pale); }
+.pw-step-label {
+  font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--blue); margin: 8px 0 4px;
+}
+.pw-choose { color: #A9832E; font-weight: 700; text-transform: none; letter-spacing: 0; }
+#detailContent .pw-choose { font-size: 0.78rem; }
+.pw-step-body .course-row:first-of-type { border-top: none; }
+.pw-source { font-size: 0.78rem; color: var(--ink-dim); line-height: 1.5; margin: 8px 0 12px; max-width: 80ch; }
+.pw-back { margin-left: 0; padding: 0; font-size: 0.85rem; }
+#detailContent .pw-view { margin: 12px 0 0; font-size: 0.82rem; }

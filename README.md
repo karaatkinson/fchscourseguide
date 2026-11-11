@@ -13,6 +13,7 @@ Every course and detail on the site is read directly from the department Course 
 | `index.html`, `styles.css`, `app.js` | The website itself | No |
 | `assets/logo.png` | FCHS logo | Only to change the logo |
 | `data/guides.json` | School year + list of department guide files | Once a year (school year) |
+| `data/pathways.json` | Pathway course order (from the state NLPS document), by state course code | When pathways change |
 | `guides/` | One `.md` file per department guide | Yes: this is where the course info lives |
 | `.nojekyll` | Tells GitHub Pages to serve the guide files as-is | No |
 
@@ -77,10 +78,28 @@ Course Title · Department · Course Description · Grade Level(s) · Length & C
 
 ---
 
+## Pathways (`data/pathways.json`)
+
+The **Pathway** filter and the numbered pathway list in each course's details come from `data/pathways.json`, not from the guides. Each pathway lists the 4 NLPS steps (Principles → Concentrator A → Concentrator B → Capstone) using **state course codes**:
+
+```json
+{ "name": "Business Administration", "steps": [["4562"], ["7143", "5914"], ["4524"], ["7256"]] }
+```
+
+- A course appears in a pathway only if its code is in a guide's **FC / State Course Code** row, so courses FC doesn't offer are left out automatically. Once a guide adds a course, it shows up in the pathway with no other changes.
+- When a step lists more than one code, the site shows "Choose one."
+- Add `"note": "..."` to a pathway to show a message with it (used for Interior Design and Biomedical Sciences).
+- The guide's own **Pathway / Sequence** text is still shown under At a Glance exactly as written.
+
+## Repeatable courses
+
+The **Max Times Course May Be Taken** row (or the newer **Course may be taken up to [X] times** row) appears under At a Glance only when the course can be taken more than once, for example "Course may be taken up to 3 times (6 credits max)." A value of 1 is hidden. Wording without a number, like "Once per school year (…)," is shown as written.
+
 ## Each new school year
 
 1. Download the new guides and replace the files in `guides/` (same file names).
 2. Open `data/guides.json`, click the pencil icon, change `"schoolYear": "2027–2028"` to the new year, and commit.
+3. If the state releases a new NLPS document, check `data/pathways.json` against it. Remove a pathway's `note` once the full pathway is offered.
 
 To add or remove a department, add or remove its line in `data/guides.json`, using the same pattern as the other lines.
 

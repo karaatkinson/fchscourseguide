@@ -53,6 +53,8 @@
   function fieldKeyFor(label) {
     var n = normKey(label);
     if (KEY_BY_NORM[n]) return KEY_BY_NORM[n];
+    // New template wording: "Course may be taken up to [X] times"
+    if (n.indexOf('coursemaybetaken') === 0) return 'maxTimes';
     for (var i = 0; i < NORM_BY_LENGTH.length; i++) {
       var d = NORM_BY_LENGTH[i];
       if (d.length >= 10 && n.indexOf(d) !== -1) return KEY_BY_NORM[d];
@@ -80,7 +82,10 @@
     dept: 'all',
     search: '',
     grade: null,
-    flags: {}
+    flags: {},
+    pathway: null,     // slug of the NLPS pathway being viewed
+    nlps: [],          // NLPS pathways that have at least one offered course
+    nlpsConfig: null
   };
 
   // ---------------------------------------------------------------
@@ -117,10 +122,18 @@
   function isYes(v) {
     return !!v && /^\s*yes\b/i.test(v);
   }
-  // AP field is written either "Yes ..." or "AP course: Yes. AP exam required: ..."
+  // The AP field is worded several ways in the guides, e.g.
+  //   "Yes — students are required to take the AP exam in May"
+  //   "AP course: Yes. AP exam required:"
+  //   "AP course; AP exam optional (students may take it in May)"
+  // A course counts as AP unless the field is blank or says No / Not / N/A / None
+  // (including "AP course: No").
   function isAP(c) {
-    var v = c.f.ap || '';
-    return isYes(v) || /\bAP course\s*:?\s*yes\b/i.test(v);
+    var v = (c.f.ap || '').trim();
+    if (!hasValue(v)) return false;
+    if (/^(no|not|n\/a|none)\b/i.test(v)) return false;
+    if (/\bAP course\s*:?\s*(no|not)\b/i.test(v)) return false;
+    return true;
   }
   // Work-Based Learning hours: counts only when filled in with something other than N/A or 0.
   function hasWBL(c) {
@@ -267,7 +280,10 @@
           document.getElementById('footerYear').textContent = cfg.schoolYear;
           document.title = 'FCHS Course Description Guide ' + cfg.schoolYear;
         }
-        return Promise.all(cfg.guides.map(function (g) {
+        var pathwaysLoad = fetchText('data/pathways.json')
+          .then(function (t) { state.nlpsConfig = JSON.parse(t); })
+          .catch(function () { state.nlpsConfig = null; });
+        return Promise.all([pathwaysLoad].concat(cfg.guides.map(function (g) {
           var dept = { name: g.department, slug: slugify(g.department), file: g.file, notes: [], courses: [], loaded: false, error: null };
           state.departments.push(dept);
           return fetchText('guides/' + encodeURIComponent(g.file).replace(/%2F/g, '/'))
@@ -279,7 +295,7 @@
               if (!parsed.courses.length) dept.error = 'no course tables were found in the file';
             })
             .catch(function (err) { dept.error = 'file not found (' + err.message + ')'; });
-        }));
+        })));
       })
       .then(finishLoad)
       .catch(function (err) {
@@ -334,10 +350,12 @@
       .sort(function (a, b) { return b.title.length - a.title.length; });
 
     buildPathways();
+    buildNlpsPathways();
 
     showLoadWarnings();
     buildFilterBar();
     readHash();
+    syncFilterBar();
     renderRail();
     renderCatalog();
     window.addEventListener('hashchange', function () { readHash(true); });
@@ -481,6 +499,126 @@
     return '<h3>' + escapeHtml(title) + '</h3><div class="dc-block">' + html + '</div>';
   }
 
+
+  // ---------------------------------------------------------------
+  // NLPS pathways (data/pathways.json)
+  // Each pathway lists the state course codes for its 4 NLPS steps. Only courses that
+  // appear in a guide (matched by state course code) are shown.
+  // ---------------------------------------------------------------
+  function courseCodes(c) {
+    // "7173 (7173/1, 7173/2)" -> ["7173"]; "3542 (PE I), 3544 (PE II)" -> ["3542","3544"]
+    return shortCode(c.f.code || '').split(/[,;+]/).map(function (x) {
+      var m = x.trim().match(/^(\d{4})\b/);
+      return m ? m[1] : null;
+    }).filter(Boolean);
+  }
+
+  function buildNlpsPathways() {
+    state.courses.forEach(function (c) { c.nlps = []; });
+    var cfg = state.nlpsConfig;
+    if (!cfg || !cfg.pathways) return;
+    var byCode = {};
+    state.courses.forEach(function (c) {
+      courseCodes(c).forEach(function (code) { (byCode[code] = byCode[code] || []).push(c); });
+    });
+    var labels = cfg.stepLabels || [];
+    var sortT = function (a, b) { return a.f.title.localeCompare(b.f.title); };
+    state.nlps = cfg.pathways.map(function (p) {
+      var pw = { name: p.name, slug: slugify(p.name), note: p.note || '', steps: [] };
+      (p.steps || []).forEach(function (codes, i) {
+        var list = [];
+        codes.forEach(function (code) {
+          (byCode[code] || []).forEach(function (c) { if (list.indexOf(c) === -1) list.push(c); });
+        });
+        if (list.length) pw.steps.push({ num: i + 1, label: labels[i] || '', courses: list.sort(sortT) });
+      });
+      return pw;
+    }).filter(function (pw) { return pw.steps.length; })
+      .sort(function (a, b) { return a.name.localeCompare(b.name); });
+    state.nlps.forEach(function (pw) {
+      pw.steps.forEach(function (st) {
+        st.courses.forEach(function (c) { if (c.nlps.indexOf(pw) === -1) c.nlps.push(pw); });
+      });
+    });
+  }
+
+  function pathwayTitle(name) {
+    return /pathway$/i.test(name) ? name : name + ' Pathway';
+  }
+
+  // Numbered list for the course tray.
+  function nlpsBlock(c, pw) {
+    var item = function (m) {
+      return m === c
+        ? '<strong class="pw-current" aria-current="true">' + escapeHtml(m.f.title) + '</strong>'
+        : '<a class="course-link" href="#course=' + encodeURIComponent(m.id) + '" data-goto="' + escapeHtml(m.id) + '">' + escapeHtml(m.f.title) + '</a>';
+    };
+    var html = '<ol class="pathway-list">' + pw.steps.map(function (st) {
+      return '<li value="' + st.num + '">' +
+        (st.courses.length > 1 ? '<span class="pw-choose">Choose one:</span><br>' : '') +
+        st.courses.map(item).join('<br>') + '</li>';
+    }).join('') + '</ol>';
+    if (pw.note) html += '<p class="pw-note">' + escapeHtml(pw.note) + '</p>';
+    html += '<p class="pw-view"><a href="#pathway=' + encodeURIComponent(pw.slug) + '" data-pathway="' + escapeHtml(pw.slug) + '">See this pathway in the course list</a></p>';
+    return '<h3>' + escapeHtml(pathwayTitle(pw.name)) + '</h3><div class="dc-block">' + html + '</div>';
+  }
+
+  function showPathway(slug) {
+    state.pathway = slug || null;
+    if (state.pathway) state.dept = 'all';
+    writeHash();
+    refresh();
+    var top = document.querySelector('.layout').getBoundingClientRect().top;
+    if (top < 0) window.scrollBy({ top: top, behavior: 'smooth' });
+  }
+
+  // Full-page pathway view in the course list. Returns false if the pathway isn't found.
+  function renderPathwayView(main) {
+    var pw = null;
+    state.nlps.forEach(function (p) { if (p.slug === state.pathway) pw = p; });
+    if (!pw) return false;
+    var count = 0;
+    var html = '<section class="dept-section"><h2 class="dept-heading">' + escapeHtml(pathwayTitle(pw.name)) + '</h2>' +
+      '<p class="pw-intro">Take these courses in order, starting with step 1.</p>';
+    if (pw.note) html += '<div class="dept-note"><p>' + escapeHtml(pw.note) + '</p></div>';
+    html += '<ol class="pw-steps">' + pw.steps.map(function (st) {
+      count += st.courses.length;
+      return '<li class="pw-step"><div class="pw-step-num" aria-hidden="true">' + st.num + '</div><div class="pw-step-body">' +
+        '<p class="pw-step-label">Step ' + st.num + (st.label ? ' · ' + escapeHtml(st.label) : '') +
+        (st.courses.length > 1 ? ' <span class="pw-choose">· Choose one</span>' : '') + '</p>' +
+        st.courses.map(courseRow).join('') + '</div></li>';
+    }).join('') + '</ol>';
+    var src = state.nlpsConfig && state.nlpsConfig.source;
+    html += '<p class="pw-source">Course order follows the Indiana Next Level Programs of Study' +
+      (src ? ' (' + escapeHtml(src.replace(/^Indiana Next Level Programs of Study \(NLPS\)\s*/i, '')) + ')' : '') +
+      '. Only courses offered at FC are listed. Check each course’s prerequisites and talk with your counselor when planning.</p>' +
+      '<button class="filter-clear pw-back" id="pwBack">← Back to all courses</button></section>';
+    main.innerHTML = html;
+    main.querySelectorAll('.course-row').forEach(function (row) {
+      row.addEventListener('click', function () { openCourse(row.getAttribute('data-id')); });
+    });
+    document.getElementById('pwBack').addEventListener('click', function () { showPathway(null); });
+    document.getElementById('resultCount').textContent = count + (count === 1 ? ' course' : ' courses');
+    return true;
+  }
+
+  // "Course may be taken up to X times" — shown only when the course is repeatable.
+  var NUMBER_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8 };
+  function maxTimesRow(c) {
+    var v = (c.f.maxTimes || '').trim();
+    if (!hasValue(v)) return '';
+    var m = v.match(/^(\d+|one|two|three|four|five|six|seven|eight)\b\s*(?:times?)?\s*(.*)$/i);
+    if (m) {
+      var n = /^\d+$/.test(m[1]) ? parseInt(m[1], 10) : NUMBER_WORDS[m[1].toLowerCase()];
+      if (n <= 1) return '';
+      return '<p><strong>Course may be taken up to ' + n + ' times</strong>' + (m[2] ? ' ' + escapeHtml(m[2]) : '') + '</p>';
+    }
+    // "Once" alone means not repeatable; anything else (e.g. "Once per school year (8 credits max…)")
+    // is shown exactly as the guide words it.
+    if (/^once\b\.?$/i.test(v) || /^once\s*\(/i.test(v) || /not repeatable/i.test(v)) return '';
+    return '<p><strong>Course may be taken:</strong> ' + escapeHtml(v) + '</p>';
+  }
+
   function showLoadWarnings() {
     var bad = state.departments.filter(function (d) { return d.error; });
     var box = document.getElementById('loadWarning');
@@ -525,6 +663,8 @@
     wrap.querySelectorAll('.dept-item').forEach(function (btn) {
       btn.addEventListener('click', function () {
         state.dept = btn.getAttribute('data-dept');
+        state.pathway = null;
+        syncFilterBar();
         writeHash();
         renderRail();
         renderCatalog();
@@ -539,8 +679,9 @@
     }
   }
   function railButton(slug, name, count, missing) {
-    return '<button class="dept-item' + (state.dept === slug ? ' active' : '') + (missing ? ' missing' : '') +
-      '" data-dept="' + escapeHtml(slug) + '"' + (state.dept === slug ? ' aria-current="true"' : '') + '>' +
+    var on = state.dept === slug && !state.pathway;
+    return '<button class="dept-item' + (on ? ' active' : '') + (missing ? ' missing' : '') +
+      '" data-dept="' + escapeHtml(slug) + '"' + (on ? ' aria-current="true"' : '') + '>' +
       '<span>' + escapeHtml(name) + '</span><span class="dept-count">' + count + '</span></button>';
   }
 
@@ -557,8 +698,17 @@
     FLAG_FILTERS.forEach(function (f) {
       html += '<button class="filter-chip" data-flag="' + f.id + '">' + escapeHtml(f.label) + '</button>';
     });
-    html += '</div><button class="filter-clear" id="filterClear">Clear filters</button>';
+    html += '</div>';
+    if (state.nlps.length) {
+      html += '<div class="filter-group" role="group" aria-label="Pathway"><label class="filter-group-label" for="pathwaySelect">Pathway</label>' +
+        '<select class="filter-select" id="pathwaySelect"><option value="">All pathways</option>' +
+        state.nlps.map(function (pw) { return '<option value="' + escapeHtml(pw.slug) + '">' + escapeHtml(pw.name) + '</option>'; }).join('') +
+        '</select></div>';
+    }
+    html += '<button class="filter-clear" id="filterClear">Clear filters</button>';
     bar.innerHTML = html;
+    var sel = document.getElementById('pathwaySelect');
+    if (sel) sel.addEventListener('change', function () { showPathway(sel.value || null); });
 
     bar.querySelectorAll('[data-grade]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -575,8 +725,9 @@
       });
     });
     document.getElementById('filterClear').addEventListener('click', function () {
-      state.grade = null; state.flags = {}; state.search = '';
+      state.grade = null; state.flags = {}; state.search = ''; state.pathway = null;
       document.getElementById('searchInput').value = '';
+      writeHash();
       refresh();
     });
   }
@@ -591,7 +742,9 @@
       btn.classList.toggle('active', on);
       btn.setAttribute('aria-pressed', on);
     });
-    var n = (state.grade ? 1 : 0) + activeFlagFilters().length;
+    var sel = document.getElementById('pathwaySelect');
+    if (sel) sel.value = state.pathway || '';
+    var n = (state.grade ? 1 : 0) + activeFlagFilters().length + (state.pathway ? 1 : 0);
     var toggle = document.getElementById('filtersToggleBtn');
     toggle.textContent = n ? 'Filters (' + n + ')' : 'Filters';
   }
@@ -617,7 +770,7 @@
 
   function courseRow(c) {
     var meta = [];
-    if (hasValue(c.f.grades)) meta.push('Grades ' + escapeHtml(c.f.grades));
+    if (hasValue(c.f.grades)) meta.push('Grade Level(s): ' + escapeHtml(c.f.grades));
     if (hasValue(c.f.length)) meta.push(escapeHtml(formatLength(c.f.length)));
     return '<button class="course-row" data-id="' + escapeHtml(c.id) + '">' +
       '<div><p class="course-title">' + escapeHtml(c.f.title) + '</p>' +
@@ -631,6 +784,7 @@
 
   function renderCatalog() {
     var main = document.getElementById('catalog');
+    if (state.pathway && renderPathwayView(main)) return;
     var depts = state.dept === 'all'
       ? state.departments
       : state.departments.filter(function (d) { return d.slug === state.dept; });
@@ -763,7 +917,7 @@
     if (hasValue(c.f.description)) html += '<h3>Description</h3><p>' + renderRich(c.f.description) + '</p>';
 
     html += block('At a Glance',
-      row('grades', c) + row('length', c) + row('maxTimes', c) + pathwayRows(c, link));
+      row('grades', c) + row('length', c) + maxTimesRow(c) + pathwayRows(c, link));
 
     var prereqInner = row('prereq', c, { rich: link }) + row('coreq', c, { hideEmpty: true, rich: link }) +
       (isYes(c.f.application) ? row('application', c, { rich: {} }) : '');
@@ -772,9 +926,15 @@
     }
     html += block('Prerequisites & Requirements', prereqInner);
 
-    c.pathways.forEach(function (pw) {
-      if (pw.members.length > 1) html += pathwayBlock(c, pw);
-    });
+    // Official NLPS order when the course is in data/pathways.json; otherwise fall back
+    // to the order written in the guide's Pathway / Sequence row.
+    if (c.nlps.length) {
+      c.nlps.forEach(function (pw) { html += nlpsBlock(c, pw); });
+    } else {
+      c.pathways.forEach(function (pw) {
+        if (pw.members.length > 1) html += pathwayBlock(c, pw);
+      });
+    }
 
     if (isYes(c.f.dual)) {
       html += block('Dual Credit',
@@ -802,6 +962,13 @@
     content.querySelectorAll('[data-goto]').forEach(function (btn) {
       btn.addEventListener('click', function (e) { e.preventDefault(); openCourse(btn.getAttribute('data-goto')); });
     });
+    content.querySelectorAll('[data-pathway]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        closeCourse();
+        showPathway(a.getAttribute('data-pathway'));
+      });
+    });
     var panel = document.getElementById('detailPanel');
     panel.scrollTop = 0;
     if (!panel.classList.contains('open')) state.returnFocus = document.activeElement;
@@ -824,7 +991,8 @@
   // ---------------------------------------------------------------
   function writeHash() {
     var parts = [];
-    if (state.dept !== 'all') parts.push('dept=' + encodeURIComponent(state.dept));
+    if (state.pathway) parts.push('pathway=' + encodeURIComponent(state.pathway));
+    else if (state.dept !== 'all') parts.push('dept=' + encodeURIComponent(state.dept));
     if (state.openId) parts.push('course=' + encodeURIComponent(state.openId));
     var h = parts.length ? '#' + parts.join('&') : ' ';
     if (('#' + parts.join('&')) !== location.hash) history.replaceState(null, '', h === ' ' ? location.pathname + location.search : h);
@@ -837,7 +1005,10 @@
     });
     var deptOk = params.dept && state.departments.some(function (d) { return d.slug === params.dept; });
     state.dept = deptOk ? params.dept : 'all';
-    if (rerender) { renderRail(); renderCatalog(); }
+    var pwOk = params.pathway && state.nlps.some(function (p) { return p.slug === params.pathway; });
+    state.pathway = pwOk ? params.pathway : null;
+    if (pwOk) state.dept = 'all';
+    if (rerender) { syncFilterBar(); renderRail(); renderCatalog(); }
     if (params.course && state.byId[params.course]) openCourse(params.course, true);
   }
 
