@@ -13,7 +13,7 @@
 
 <header class="masthead">
   <div class="masthead-inner">
-    <img src="assets/logo.png" alt="Franklin Central High School" class="masthead-logo">
+    <a href="#" id="homeLogo" class="masthead-home" aria-label="Course Description Guide home"><img src="assets/logo.png" alt="Franklin Central High School" class="masthead-logo"></a>
     <div>
       <h1>Course Description Guide</h1>
       <p class="masthead-sub">Explore every course offered at Franklin Central High School<span id="yearLabel"></span>.</p>
@@ -26,7 +26,50 @@
 
 <div id="loadWarning" class="load-warning" style="display:none;" role="status"></div>
 
-<div id="catalogView">
+<div id="mockupBanner" class="mockup-banner" style="display:none;" role="note"></div>
+
+<main id="homeView" class="home" style="display:none;" aria-labelledby="homeTitle">
+  <section class="home-howto" aria-labelledby="howtoTitle">
+    <h2 id="howtoTitle" class="home-h">How to use this guide</h2>
+    <ul class="tile-grid howto-grid" id="howtoList" data-limit-rows="2"><!-- copied from the help list below by app.js --></ul>
+  </section>
+
+  <section class="home-hero">
+    <h2 id="homeTitle">Explore FC’s <span id="homeYear"></span> courses</h2>
+    <p class="home-lead">Search every course, browse by department, or explore a career pathway.</p>
+    <form class="home-search" id="homeSearchForm" role="search">
+      <label for="homeSearch" class="sr-only">Search courses</label>
+      <input type="search" id="homeSearch" placeholder="Search by course name, code, or topic…" autocomplete="off">
+      <button type="submit" class="print-btn">Search</button>
+    </form>
+    <p class="home-browse"><a href="#courses" id="browseAllLink">Browse all <span id="homeCourseCount"></span> courses →</a></p>
+  </section>
+
+  <section class="home-section" aria-labelledby="quickTitle">
+    <h3 id="quickTitle" class="home-h">Browse by course type</h3>
+    <div class="tile-grid quick-grid" id="quickTiles" data-limit-rows="2"></div>
+  </section>
+
+  <section class="home-section" aria-labelledby="deptTitle">
+    <h3 id="deptTitle" class="home-h">Browse by department</h3>
+    <div class="tile-grid quick-grid" id="deptTiles" data-limit-rows="2"></div>
+  </section>
+
+  <section class="home-section" id="pathwaySection" aria-labelledby="pwTitle">
+    <h3 id="pwTitle" class="home-h">Explore career pathways</h3>
+    <p class="home-sub">A pathway is a set of courses taken in order, each building on the last, in one career area.</p>
+    <div class="tile-grid quick-grid" id="pathwayTiles" data-limit-rows="2"></div>
+  </section>
+
+  <section class="home-section" aria-labelledby="planTitle">
+    <h3 id="planTitle" class="home-h">Ready to plan?</h3>
+    <p class="home-sub">Explore the FCHS Course Planner and Diploma Tracker to build a 4-year course plan and track your progress toward the Indiana Diploma and the Indiana College Core.</p>
+    <div class="home-links" id="homeLinks"></div>
+  </section>
+</main>
+
+<div id="catalogView" style="display:none;">
+  <p class="home-crumb"><a href="#" id="backHome">← Home</a></p>
   <div class="filter-row">
     <div class="search-wrap">
       <label for="searchInput" class="sr-only">Search courses</label>
@@ -50,7 +93,7 @@
 </div>
 
 <footer class="site-footer">
-  <p>Course information comes directly from the Franklin Central <span id="footerYear"></span> Course Description Guides. Course offerings depend on enrollment and staffing. Talk with your school counselor before making final course decisions.</p>
+  <p>Course information comes directly from the Franklin Central <span id="footerYear"></span> Course Description Guides. Course offerings depend on enrollment and staffing. Talk with your school counselor before making final course decisions.<span id="footerSchool"></span></p>
 </footer>
 
 <div class="detail-panel" id="detailPanel" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
@@ -63,7 +106,7 @@
   <div class="setup-card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
     <img src="assets/logo.png" alt="" class="setup-logo">
     <h2 id="helpTitle">How to use this guide</h2>
-    <ul class="help-list">
+    <ul class="help-list" id="helpList">
       <li><strong>Departments</strong> | pick a department on the left (or across the top on a phone), or choose All Departments.</li>
       <li><strong>Search</strong> | type a course name, course code, or any word from a description.</li>
       <li><strong>Filters</strong> | narrow the list by grade level, AP, dual credit, NCAA approval, and more.</li>

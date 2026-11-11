@@ -84,6 +84,8 @@
     grade: null,
     flags: {},
     pathway: null,     // slug of the NLPS pathway being viewed
+    view: 'home',      // 'home' or 'catalog'
+    site: {},          // data/site.json (home page links)
     nlps: [],          // NLPS pathways that have at least one offered course
     nlpsConfig: null
   };
@@ -283,7 +285,10 @@
         var pathwaysLoad = fetchText('data/pathways.json')
           .then(function (t) { state.nlpsConfig = JSON.parse(t); })
           .catch(function () { state.nlpsConfig = null; });
-        return Promise.all([pathwaysLoad].concat(cfg.guides.map(function (g) {
+        var siteLoad = fetchText('data/site.json')
+          .then(function (t) { state.site = JSON.parse(t) || {}; })
+          .catch(function () { state.site = {}; });
+        return Promise.all([pathwaysLoad, siteLoad].concat(cfg.guides.map(function (g) {
           var dept = { name: g.department, slug: slugify(g.department), file: g.file, notes: [], courses: [], loaded: false, error: null };
           state.departments.push(dept);
           return fetchText('guides/' + encodeURIComponent(g.file).replace(/%2F/g, '/'))
@@ -354,10 +359,12 @@
 
     showLoadWarnings();
     buildFilterBar();
+    renderHome();
     readHash();
     syncFilterBar();
     renderRail();
     renderCatalog();
+    applyView();
     window.addEventListener('hashchange', function () { readHash(true); });
   }
 
@@ -524,7 +531,7 @@
     var labels = cfg.stepLabels || [];
     var sortT = function (a, b) { return a.f.title.localeCompare(b.f.title); };
     state.nlps = cfg.pathways.map(function (p) {
-      var pw = { name: p.name, slug: slugify(p.name), note: p.note || '', steps: [] };
+      var pw = { name: p.name, slug: slugify(p.name), note: p.note || '', cluster: p.cluster || '', steps: [] };
       (p.steps || []).forEach(function (codes, i) {
         var list = [];
         codes.forEach(function (code) {
@@ -566,6 +573,8 @@
   function showPathway(slug) {
     state.pathway = slug || null;
     if (state.pathway) state.dept = 'all';
+    state.view = 'catalog';
+    applyView();
     writeHash();
     refresh();
     var top = document.querySelector('.layout').getBoundingClientRect().top;
@@ -617,6 +626,195 @@
     // is shown exactly as the guide words it.
     if (/^once\b\.?$/i.test(v) || /^once\s*\(/i.test(v) || /not repeatable/i.test(v)) return '';
     return '<p><strong>Course may be taken:</strong> ' + escapeHtml(v) + '</p>';
+  }
+
+
+  // ---------------------------------------------------------------
+  // Home page
+  // ---------------------------------------------------------------
+  function applyView() {
+    var home = state.view === 'home';
+    document.getElementById('homeView').style.display = home ? '' : 'none';
+    document.getElementById('catalogView').style.display = home ? 'none' : '';
+    if (home) applyTileLimits();
+  }
+
+  // Each home section shows 2 rows of tiles, with "See more" to open the rest in place.
+  // Rows (not a fixed count) so it works at every screen width.
+  function applyTileLimits() {
+    document.querySelectorAll('[data-limit-rows]').forEach(function (grid) {
+      var tiles = Array.prototype.slice.call(grid.children);
+      var cols = getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length || 1;
+      var limit = cols * parseInt(grid.getAttribute('data-limit-rows'), 10);
+      var expanded = grid.getAttribute('data-expanded') === 'true';
+      tiles.forEach(function (t, i) { t.hidden = !expanded && i >= limit; });
+      var btn = grid.nextElementSibling && grid.nextElementSibling.classList.contains('see-more') ? grid.nextElementSibling : null;
+      if (tiles.length <= limit) { if (btn) btn.hidden = true; return; }
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'see-more';
+        if (grid.id) btn.setAttribute('aria-controls', grid.id);
+        btn.addEventListener('click', function () {
+          var open = grid.getAttribute('data-expanded') === 'true';
+          grid.setAttribute('data-expanded', open ? 'false' : 'true');
+          applyTileLimits();
+          if (open) {
+            var top = grid.getBoundingClientRect().top;
+            if (top < 0) window.scrollBy({ top: top - 80, behavior: 'smooth' });
+          }
+        });
+        grid.parentNode.insertBefore(btn, grid.nextSibling);
+      }
+      btn.hidden = false;
+      btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      btn.textContent = expanded ? 'See less' : 'See more (' + (tiles.length - limit) + ')';
+    });
+  }
+  var limitTimer;
+  window.addEventListener('resize', function () {
+    clearTimeout(limitTimer);
+    limitTimer = setTimeout(function () { if (state.view === 'home') applyTileLimits(); }, 150);
+  });
+  function goHome() {
+    if (document.getElementById('detailPanel').classList.contains('open')) closeCourse();
+    state.view = 'home';
+    state.pathway = null;
+    applyView();
+    writeHash();
+    window.scrollTo(0, 0);
+  }
+  function goCatalog() {
+    state.view = 'catalog';
+    applyView();
+    writeHash();
+    syncFilterBar();
+    renderRail();
+    renderCatalog();
+    window.scrollTo(0, 0);
+  }
+  function resetFilters() {
+    state.grade = null; state.flags = {}; state.search = ''; state.pathway = null; state.dept = 'all';
+    document.getElementById('searchInput').value = '';
+  }
+  function openFilterBar() {
+    var bar = document.getElementById('filterBar');
+    var toggle = document.getElementById('filtersToggleBtn');
+    bar.style.display = '';
+    toggle.classList.add('active');
+    toggle.setAttribute('aria-expanded', 'true');
+  }
+
+  var QUICK_TILES = ['ap', 'dual', 'ncaa', 'credential', 'wbl'];
+  var QUICK_TEXT = {
+    ap: ['AP courses', 'College-level courses with an AP exam'],
+    dual: ['Dual credit', 'Earn high school and college credit'],
+    ncaa: ['NCAA-approved', 'Count toward NCAA eligibility'],
+    credential: ['Industry credentials', 'Earn a certification or credential'],
+    wbl: ['Work-based learning', 'Includes on-the-job learning hours']
+  };
+
+  function renderHome() {
+    var cfg = state.config || {};
+    var site = state.site || {};
+    var placeholders = !!site.mockupPlaceholders;
+    document.getElementById('homeYear').textContent = cfg.schoolYear || '';
+
+    // "How to use this guide": the same list as the help pop-up, so the two never disagree.
+    var howto = document.getElementById('howtoList');
+    howto.innerHTML = Array.prototype.map.call(document.querySelectorAll('#helpList > li'), function (li) {
+      var label = li.querySelector('strong');
+      var title = label ? label.textContent : '';
+      var text = li.textContent.replace(title, '').replace(/^\s*\|\s*/, '');
+      return '<li class="tile"><span class="tile-title">' + escapeHtml(title) + '</span><span class="tile-sub">' + escapeHtml(text.charAt(0).toUpperCase() + text.slice(1)) + '</span></li>';
+    }).join('');
+    document.getElementById('homeCourseCount').textContent = state.courses.length;
+
+    if (site.mockupNote) {
+      var mb = document.getElementById('mockupBanner');
+      mb.textContent = site.mockupNote;
+      mb.style.display = '';
+    }
+
+    // Quick-start tiles: counts come straight from the guides.
+    var quick = document.getElementById('quickTiles');
+    var flagIds = site.quickTiles && site.quickTiles.length ? site.quickTiles : QUICK_TILES;
+    quick.innerHTML = flagIds.map(function (id) {
+      var f = FLAG_FILTERS.filter(function (x) { return x.id === id; })[0];
+      if (!f) return '';
+      var n = state.courses.filter(f.test).length;
+      if (!n) return '';
+      var t = QUICK_TEXT[id] || [f.label, ''];
+      return '<a class="tile quick-tile" href="#courses" data-quick="' + id + '">' +
+        '<span class="tile-count">' + n + '</span><span class="tile-title">' + escapeHtml(t[0]) + '</span>' +
+        (t[1] ? '<span class="tile-sub">' + escapeHtml(t[1]) + '</span>' : '') + '</a>';
+    }).join('');
+
+    // Department tiles.
+    document.getElementById('deptTiles').innerHTML = state.departments.map(function (d) {
+      var missing = d.error && !d.courses.length;
+      return '<a class="tile dept-tile' + (missing ? ' tile-missing' : '') + '" href="#dept=' + encodeURIComponent(d.slug) + '" data-dept-tile="' + escapeHtml(d.slug) + '">' +
+        '<span class="tile-count">' + (missing ? '–' : d.courses.length) + '</span>' +
+        '<span class="tile-title">' + escapeHtml(d.name) + '</span>' +
+        '<span class="tile-sub">' + (missing ? 'Coming soon' : (d.courses.length === 1 ? 'course' : 'courses')) + '</span></a>';
+    }).join('');
+
+    // Pathways grouped by career cluster.
+    var pwBox = document.getElementById('pathwayTiles');
+    if (!state.nlps.length) {
+      document.getElementById('pathwaySection').style.display = 'none';
+    } else {
+      var list = state.nlps.slice().sort(function (a, b) {
+        return (a.cluster || '').localeCompare(b.cluster || '') || a.name.localeCompare(b.name);
+      });
+      pwBox.innerHTML = list.map(function (pw) {
+        var n = 0;
+        pw.steps.forEach(function (st) { n += st.courses.length; });
+        return '<a class="tile pathway-tile" href="#pathway=' + encodeURIComponent(pw.slug) + '" data-pathway-tile="' + escapeHtml(pw.slug) + '">' +
+          '<span class="tile-count">' + n + '</span>' +
+          '<span class="tile-title">' + escapeHtml(pw.name) + '</span>' +
+          '<span class="tile-sub">' + (pw.note ? 'New pathway · ' : '') + escapeHtml(pw.cluster || '') + '</span></a>';
+      }).join('');
+    }
+
+    // Planner / counselor / school links (data/site.json). Blank = hidden.
+    var links = [];
+    var addLink = function (url, label, sub, placeholderLabel) {
+      if (url) links.push('<a class="tile link-tile" href="' + escapeHtml(url) + '" target="_blank" rel="noopener"><span class="tile-title">' + escapeHtml(label) + ' ↗</span><span class="tile-sub">' + escapeHtml(sub) + '</span></a>');
+      else if (placeholders) links.push('<div class="tile link-tile tile-placeholder"><span class="tile-title">' + escapeHtml(label) + '</span><span class="tile-sub">' + escapeHtml(placeholderLabel) + '</span></div>');
+    };
+    addLink(site.plannerUrl, 'Course Planner and Diploma Tracker', 'Build your 4-year plan', 'Link needed (question 1)');
+    document.getElementById('homeLinks').innerHTML = links.join('');
+    if (site.schoolUrl) {
+      document.getElementById('footerSchool').innerHTML = ' <a href="' + escapeHtml(site.schoolUrl) + '" target="_blank" rel="noopener">Franklin Central High School website ↗</a>';
+    }
+
+    // Wiring
+    quick.querySelectorAll('[data-quick]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        resetFilters();
+        state.flags[a.getAttribute('data-quick')] = true;
+        openFilterBar();
+        goCatalog();
+      });
+    });
+    document.querySelectorAll('[data-dept-tile]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        resetFilters();
+        state.dept = a.getAttribute('data-dept-tile');
+        goCatalog();
+      });
+    });
+    pwBox.querySelectorAll('[data-pathway-tile]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        resetFilters();
+        showPathway(a.getAttribute('data-pathway-tile'));
+        window.scrollTo(0, 0);
+      });
+    });
   }
 
   function showLoadWarnings() {
@@ -994,8 +1192,13 @@
     if (state.pathway) parts.push('pathway=' + encodeURIComponent(state.pathway));
     else if (state.dept !== 'all') parts.push('dept=' + encodeURIComponent(state.dept));
     if (state.openId) parts.push('course=' + encodeURIComponent(state.openId));
+    if (state.view === 'home') parts = state.openId ? ['course=' + encodeURIComponent(state.openId)] : [];
+    else if (!parts.length) parts.push('courses');
     var h = parts.length ? '#' + parts.join('&') : ' ';
-    if (('#' + parts.join('&')) !== location.hash) history.replaceState(null, '', h === ' ' ? location.pathname + location.search : h);
+    if (('#' + parts.join('&')) !== location.hash) {
+      // Some hosts (like the preview frame) don't allow this; the page still works without it.
+      try { history.replaceState(null, '', h === ' ' ? location.pathname + location.search : h); } catch (e) { /* ignore */ }
+    }
   }
   function readHash(rerender) {
     var params = {};
@@ -1003,13 +1206,24 @@
       var kv = p.split('=');
       if (kv[0]) params[kv[0]] = decodeURIComponent(kv[1] || '');
     });
+    // No hash (or #home) = home page; anything else opens the course list.
+    var keys = Object.keys(params);
+    state.view = (!keys.length || (keys.length === 1 && keys[0] === 'home')) ? 'home' : 'catalog';
+    if (rerender) applyView();
     var deptOk = params.dept && state.departments.some(function (d) { return d.slug === params.dept; });
     state.dept = deptOk ? params.dept : 'all';
     var pwOk = params.pathway && state.nlps.some(function (p) { return p.slug === params.pathway; });
     state.pathway = pwOk ? params.pathway : null;
     if (pwOk) state.dept = 'all';
     if (rerender) { syncFilterBar(); renderRail(); renderCatalog(); }
-    if (params.course && state.byId[params.course]) openCourse(params.course, true);
+    if (params.course && state.byId[params.course]) {
+      openCourse(params.course, true);
+    } else if (rerender && document.getElementById('detailPanel').classList.contains('open')) {
+      // The link changed to something other than a course: close the open course panel.
+      document.getElementById('detailPanel').classList.remove('open');
+      document.getElementById('scrim').classList.remove('open');
+      state.openId = null;
+    }
   }
 
   // ---------------------------------------------------------------
@@ -1025,6 +1239,22 @@
         renderRail();
         renderCatalog();
       }, 120);
+    });
+    document.getElementById('homeSearchForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var q = document.getElementById('homeSearch').value.trim();
+      resetFilters();
+      state.search = q;
+      search.value = q;
+      goCatalog();
+    });
+    ['homeLogo', 'backHome'].forEach(function (id) {
+      document.getElementById(id).addEventListener('click', function (e) { e.preventDefault(); goHome(); });
+    });
+    document.getElementById('browseAllLink').addEventListener('click', function (e) {
+      e.preventDefault();
+      resetFilters();
+      goCatalog();
     });
     var toggle = document.getElementById('filtersToggleBtn');
     toggle.addEventListener('click', function () {

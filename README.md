@@ -13,6 +13,7 @@ Every course and detail on the site is read directly from the department Course 
 | `index.html`, `styles.css`, `app.js` | The website itself | No |
 | `assets/logo.png` | FCHS logo | Only to change the logo |
 | `data/guides.json` | School year + list of department guide files | Once a year (school year) |
+| `data/site.json` | Home page links (Course Planner, school website) | Only if a link changes |
 | `data/pathways.json` | Pathway course order (from the state NLPS document), by state course code | When pathways change |
 | `guides/` | One `.md` file per department guide | Yes: this is where the course info lives |
 | `.nojekyll` | Tells GitHub Pages to serve the guide files as-is | No |
@@ -77,6 +78,14 @@ Course Title · Department · Course Description · Grade Level(s) · Length & C
   - Write pathway names the same way in every course (for example, always "Marketing & Sales"). Courses whose position can't be worked out are listed under "Also in this pathway" without a number.
 
 ---
+
+## Home page
+
+The site opens to a home page. Most of it is built automatically from the guides and `data/pathways.json`: course-type tiles (AP, dual credit, and so on), department tiles, and pathway tiles, each with live course counts. Each section shows two rows of tiles, with **See more** to show the rest.
+
+- The **How to use this guide** tips at the top come from the help pop-up list in `index.html`. Edit them there and both places update.
+- The **Course Planner and Diploma Tracker** tile and the footer's school website link come from `data/site.json`. Leave a link blank (`""`) to hide it.
+- Clicking the FCHS logo or **← Home** returns to the home page. Links to a course, department, or pathway still open straight to that page.
 
 ## Pathways (`data/pathways.json`)
 
