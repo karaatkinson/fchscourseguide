@@ -271,7 +271,7 @@
 | **Industry Certification / Credential Earned** | N/A |
 | **Dual Credit Offered** | Yes |
 | **Partnering University** | Vincennes University |
-| **College Course Code(s) & Title(s)** | PHYS 215/215L General Physics I (4 credits) |
+| **College Course Code(s) & Title(s)** | PHYS 215/215L General Physics I (5 credits) |
 | **Dual Credit Eligibility (GPA/test scores)** | DC Precalculus Sem 1 with a C or better, or AP Precalculus |
 | **FC / State Course Code** | 3090 |
 | **Other Notes / Footnotes** | Please consult with your current science teacher for best science course placement. |

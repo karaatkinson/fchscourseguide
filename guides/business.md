@@ -21,7 +21,6 @@
 | Principles of Digital Design | Digital Design | 0 | 9–12 | 2 sem / 2 cr | 1 | None | No | No | No |
 | Digital Design Graphics | Digital Design | 0 | 10–12 | 2 sem / 2 cr | 1 | Principles of Digital Design | No | No | No |
 | Interactive Media Design | Digital Design | 0 | 11–12 | 2 sem / 2 cr | 1 | Digital Design Graphics | No | No | No |
-| Business Math | N/A | 0 | 11–12 | 1–2 sem / 1–2 cr | 1 | Algebra I and counselor approval | No | No | No |
 | Computer Science A Advanced Placement | N/A | 0 | 11–12 | 2 sem / 2 cr | 1 | Principles of Computing | No | Yes | No |
 | Computing Foundations for a Digital Age | N/A | 0 | 9–12 | 1 sem / 1 cr | 1 | None | No | No | No |
 | Introduction to Business | N/A | 0 | 9–12 | 1 sem / 1 cr | 1 | None | No | No | No |
@@ -434,33 +433,6 @@
 | **College Course Code(s) & Title(s)** | N/A |
 | **Dual Credit Eligibility (GPA/test scores)** | N/A |
 | **FC / State Course Code** | 7138 |
-| **Other Notes / Footnotes** | None |
-| **School Year This Applies To** | 2027–2028 |
-
-# 
-
-# **Business Math**
-
-| Course Title | Business Math |
-| :---- | :---- |
-| **Department** | Business |
-| **Course Description** | Business Math is a course designed to prepare students for roles as entrepreneurs, producers, and business leaders by developing abilities and skills that are part of any business environment. A solid understanding of math including algebra, basic geometry, statistics, and probability provides the necessary foundation for students interested in careers in business and skilled trade areas. The content includes mathematical operations related to accounting, banking and finance, marketing, and management. This course is not recommended for students planning to enter a 4 year college. |
-| **Grade Level(s)** | 11–12 |
-| **Length & Credits** | 1 or 2 semesters / 1 or 2 credits |
-| **Course may be taken up to \[X\] times** | 1 |
-| **Pathway / Sequence** | N/A |
-| **Prerequisite(s)** | Algebra I and counselor approval |
-| **Co-requisite(s)** | N/A |
-| **NCAA Approved** | No |
-| **Application / Audition / Approval Required** | Yes — counselor approval required |
-| **AP Course / AP Exam Required** | No |
-| **Required Texts / Novels / Major Works** | N/A |
-| **Industry Certification / Credential Earned** | N/A |
-| **Dual Credit Offered** | No |
-| **Partnering University** | N/A |
-| **College Course Code(s) & Title(s)** | N/A |
-| **Dual Credit Eligibility (GPA/test scores)** | N/A |
-| **FC / State Course Code** | 4512 |
 | **Other Notes / Footnotes** | None |
 | **School Year This Applies To** | 2027–2028 |
 
